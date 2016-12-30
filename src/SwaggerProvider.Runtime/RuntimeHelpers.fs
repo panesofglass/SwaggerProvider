@@ -1,6 +1,8 @@
 ﻿namespace Swagger.Internal
 
 open System
+open System.Collections.Generic
+open System.Threading.Tasks
 open Newtonsoft.Json
 open Swagger.Serialization
 open System.Threading.Tasks

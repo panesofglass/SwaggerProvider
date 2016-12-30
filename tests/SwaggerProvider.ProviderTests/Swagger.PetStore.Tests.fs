@@ -66,3 +66,57 @@ let petStoreTests =
         let pet2 = PetStoreNullable.Pet (Name="foo", Id = Nullable(1337L))
         Expect.stringContains (pet2.ToString()) "1337" "ToString"
   ]
+
+(*
+*)
+type PetStoreServer = SwaggerApiProvider<"http://petstore.swagger.io/v2/swagger.json">
+let server = PetStoreServer()
+
+// Define AddPet handler
+server.AddPet(fun env ->
+    env.["owin.ResponseStatusCode"] <- box 201
+    env.["owin.ResponseReasonPhrase"] <- box "Pet added"
+    System.Threading.Tasks.Task.FromResult() :> System.Threading.Tasks.Task
+)
+
+let makeRequest (httpMethod:string) (path:string) (body:byte[] option) =
+    let env = new System.Collections.Generic.Dictionary<string, obj>(System.StringComparer.Ordinal) :> System.Collections.Generic.IDictionary<string, obj>
+    env.["owin.RequestMethod"] <- box httpMethod
+    env.["owin.RequestScheme"] <- box "http"
+    env.["owin.RequestPathBase"] <- box "/v2"
+    env.["owin.RequestPath"] <- box path
+    env.["owin.RequestQueryString"] <- box ""
+    env.["owin.RequestProtocol"] <- box "HTTP/1.1"
+    env.["owin.RequestHeaders"] <- box (new System.Collections.Generic.Dictionary<string, string[]>(System.StringComparer.OrdinalIgnoreCase) :> System.Collections.Generic.IDictionary<string, string[]>)
+    env.["owin.RequestBody"] <-
+        match body with
+        | Some bytes -> new System.IO.MemoryStream(bytes) :> System.IO.Stream
+        | None -> System.IO.Stream.Null
+        |> box
+    env.["owin.ResponseHeaders"] <- box (new System.Collections.Generic.Dictionary<string, string[]>(System.StringComparer.OrdinalIgnoreCase) :> System.Collections.Generic.IDictionary<string, string[]>)
+    env.["owin.ResponseBody"] <- box (new System.IO.MemoryStream() :> System.IO.Stream)
+    env
+
+[<Test>]
+let ``GET /pet/findByStatus handler responds with 404 Not Found`` () =
+    let env = makeRequest "GET" "/pet/findByStatus" None
+    let result = server.Invoke(env)
+
+    env.["owin.ResponseStatusCode"] |> shouldEqual (box 404)
+    env.["owin.ResponseReasonPhrase"] |> shouldEqual (box "Not Found")
+
+[<Test>]
+let ``GET /pet handler responds with 405 Method Not Allowed`` () =
+    let env = makeRequest "GET" "/pet" None
+    let result = server.Invoke(env)
+
+    env.["owin.ResponseStatusCode"] |> shouldEqual (box 405)
+    env.["owin.ResponseReasonPhrase"] |> shouldEqual (box "Method Not Allowed")
+
+[<Test>]
+let ``POST /pet handler responds with expected result`` () =
+    let env = makeRequest "POST" "/pet" None
+    let result = server.Invoke(env)
+
+    env.["owin.ResponseStatusCode"] |> shouldEqual (box 201)
+    env.["owin.ResponseReasonPhrase"] |> shouldEqual (box "Pet added")
