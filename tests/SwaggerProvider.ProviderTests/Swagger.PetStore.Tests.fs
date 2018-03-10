@@ -67,56 +67,42 @@ let petStoreTests =
         Expect.stringContains (pet2.ToString()) "1337" "ToString"
   ]
 
-(*
-*)
+open System.Net
+open System.Net.Http
+open System.Threading.Tasks
+
 type PetStoreServer = SwaggerApiProvider<"http://petstore.swagger.io/v2/swagger.json">
-let server = PetStoreServer()
+let server = PetStoreServer.Handler()
 
 // Define AddPet handler
-server.AddPet(fun env ->
-    env.["owin.ResponseStatusCode"] <- box 201
-    env.["owin.ResponseReasonPhrase"] <- box "Pet added"
-    System.Threading.Tasks.Task.FromResult() :> System.Threading.Tasks.Task
+server.AddPet(fun req ->
+    let response = new HttpResponseMessage(Net.HttpStatusCode.Created, RequestMessage = req)
+    Task.FromResult(response)
 )
 
 let makeRequest (httpMethod:string) (path:string) (body:byte[] option) =
-    let env = new System.Collections.Generic.Dictionary<string, obj>(System.StringComparer.Ordinal) :> System.Collections.Generic.IDictionary<string, obj>
-    env.["owin.RequestMethod"] <- box httpMethod
-    env.["owin.RequestScheme"] <- box "http"
-    env.["owin.RequestPathBase"] <- box "/v2"
-    env.["owin.RequestPath"] <- box path
-    env.["owin.RequestQueryString"] <- box ""
-    env.["owin.RequestProtocol"] <- box "HTTP/1.1"
-    env.["owin.RequestHeaders"] <- box (new System.Collections.Generic.Dictionary<string, string[]>(System.StringComparer.OrdinalIgnoreCase) :> System.Collections.Generic.IDictionary<string, string[]>)
-    env.["owin.RequestBody"] <-
-        match body with
-        | Some bytes -> new System.IO.MemoryStream(bytes) :> System.IO.Stream
-        | None -> System.IO.Stream.Null
-        |> box
-    env.["owin.ResponseHeaders"] <- box (new System.Collections.Generic.Dictionary<string, string[]>(System.StringComparer.OrdinalIgnoreCase) :> System.Collections.Generic.IDictionary<string, string[]>)
-    env.["owin.ResponseBody"] <- box (new System.IO.MemoryStream() :> System.IO.Stream)
-    env
+    let request = new HttpRequestMessage(HttpMethod(httpMethod), "http://petstore.swagger.io/v2" + path)
+    match body with
+    | Some bytes -> request.Content <- new ByteArrayContent(bytes)
+    | None -> ()
+    request
 
-[<Test>]
-let ``GET /pet/findByStatus handler responds with 404 Not Found`` () =
-    let env = makeRequest "GET" "/pet/findByStatus" None
-    let result = server.Invoke(env)
+[<Tests>]
+let petStoreServerTests =
+  testList "All/TP PetStore Server Tests" [
 
-    env.["owin.ResponseStatusCode"] |> shouldEqual (box 404)
-    env.["owin.ResponseReasonPhrase"] |> shouldEqual (box "Not Found")
+    testCase "GET /pet/findByStatus handler responds with 404 Not Found" <| fun _ ->
+        let req = makeRequest "GET" "/pet/findByStatus" None
+        let result = server.Invoke(req).Result
+        Expect.equal result.StatusCode HttpStatusCode.NotFound "not found"
 
-[<Test>]
-let ``GET /pet handler responds with 405 Method Not Allowed`` () =
-    let env = makeRequest "GET" "/pet" None
-    let result = server.Invoke(env)
+    testCase "GET /pet handler responds with 405 Method Not Allowed" <| fun _ ->
+        let req = makeRequest "GET" "/pet" None
+        let result = server.Invoke(req).Result
+        Expect.equal result.StatusCode HttpStatusCode.MethodNotAllowed "method not allowed"
 
-    env.["owin.ResponseStatusCode"] |> shouldEqual (box 405)
-    env.["owin.ResponseReasonPhrase"] |> shouldEqual (box "Method Not Allowed")
-
-[<Test>]
-let ``POST /pet handler responds with expected result`` () =
-    let env = makeRequest "POST" "/pet" None
-    let result = server.Invoke(env)
-
-    env.["owin.ResponseStatusCode"] |> shouldEqual (box 201)
-    env.["owin.ResponseReasonPhrase"] |> shouldEqual (box "Pet added")
+    testCase "POST /pet handler responds with expected result" <| fun _ ->
+        let req = makeRequest "POST" "/pet" None
+        let result = server.Invoke(req).Result
+        Expect.equal result.StatusCode HttpStatusCode.Created "created"
+  ]
