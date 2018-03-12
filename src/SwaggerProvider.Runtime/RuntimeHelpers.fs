@@ -1,4 +1,4 @@
-﻿namespace Swagger.Internal
+namespace Swagger.Internal
 
 open System
 open System.Collections.Generic

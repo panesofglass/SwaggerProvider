@@ -1,4 +1,4 @@
-﻿namespace SwaggerProvider.Internal.Compilers
+namespace SwaggerProvider.Internal.Compilers
 
 open ProviderImplementation.ProvidedTypes
 open FSharp.Data.Runtime.NameUtils
@@ -85,13 +85,13 @@ type HandlerCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, igno
         let m = ProvidedMethod(methodName, handlerParameter, typeof<unit>, invokeCode = fun args ->
             let thisTy = typeof<ProvidedSwaggerApiBaseType>
             let this = Expr.Coerce(args.[0], thisTy) |> Expr.Cast<ProvidedSwaggerApiBaseType>
-            let httpMethod = Expr.Value (op.Type.ToString().ToUpper())
-            let path = Expr.Value op.Path
             // TODO: augment handler to accept HttpRequestMessage.
             // TODO: retrieve expected parameters from HttpRequestMessage and pass to parameterized handler.
             // TODO: map result of handler function to the returned HttpResponseMessage.
+            let httpMethod = op.Type.ToString().ToUpper()
+            let path = op.Path
             let handler = Expr.Coerce(args.[1], handlerTy)
-            Expr.Call(this, thisTy.GetMethod("AddRoute", Reflection.BindingFlags.Instance ||| Reflection.BindingFlags.Public), [httpMethod; path; handler])
+            <@ (%this).AddRoute(httpMethod, path, %%handler) @>.Raw
         )
 
         if not <| String.IsNullOrEmpty(op.Summary)
@@ -119,7 +119,7 @@ type HandlerCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, igno
                 | [||]  -> "http" // Should use the scheme used to access the Swagger definition itself.
                 | array -> array.[0]
             sprintf "%s://%s" protocol schema.Host
-        let baseTy = Some typeof<ProvidedSwaggerBaseType>
+        let baseTy = Some typeof<ProvidedSwaggerApiBaseType>
         let baseCtor = baseTy.Value.GetConstructors().[0]
 
         List.ofArray schema.Paths

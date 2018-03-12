@@ -1,4 +1,4 @@
-﻿module Swagger.PetStore.Tests
+module Swagger.PetStore.Tests
 
 open SwaggerProvider
 open Expecto
