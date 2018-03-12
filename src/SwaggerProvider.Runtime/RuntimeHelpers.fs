@@ -23,7 +23,7 @@ type ProvidedSwaggerApiBaseType (host:string, basePath:string) =
     member val Host = host with get, set
     member val BasePath = basePath with get, set
 
-    // TODO: make this private or internal
+    // TODO: make this an indexer property
     member __.AddRoute(httpMethod, templatePath, handler) =
         let d = match routes.TryGetValue(templatePath) with
                 | true, d -> d
@@ -41,6 +41,10 @@ type ProvidedSwaggerApiBaseType (host:string, basePath:string) =
             | true, handler -> handler.Invoke(req)
             | false, _ -> ProvidedSwaggerApiBaseType.RespondMethodNotAllowed(req)
         | false, _ -> ProvidedSwaggerApiBaseType.RespondNotFound(req)
+
+    static member internal RespondBadRequest(req:HttpRequestMessage) =
+        let response = new HttpResponseMessage(Net.HttpStatusCode.BadRequest, RequestMessage = req)
+        Task.FromResult(response)
 
     static member internal RespondNotFound(req:HttpRequestMessage) =
         let response = new HttpResponseMessage(Net.HttpStatusCode.NotFound, RequestMessage = req)

@@ -72,13 +72,14 @@ open System.Net.Http
 open System.Threading.Tasks
 
 type PetStoreServer = SwaggerApiProvider<"http://petstore.swagger.io/v2/swagger.json">
-let server = PetStoreServer.Handler()
+let server =
+    PetStoreServer.Handler(
+        AddPet = fun req ->
+            let response = new HttpResponseMessage(Net.HttpStatusCode.Created, RequestMessage = req)
+            Task.FromResult(response)
+    )
 
 // Define AddPet handler
-server.AddPet(fun req ->
-    let response = new HttpResponseMessage(Net.HttpStatusCode.Created, RequestMessage = req)
-    Task.FromResult(response)
-)
 
 let makeRequest (httpMethod:string) (path:string) (body:byte[] option) =
     let request = new HttpRequestMessage(HttpMethod(httpMethod), server.Host + server.BasePath + path)

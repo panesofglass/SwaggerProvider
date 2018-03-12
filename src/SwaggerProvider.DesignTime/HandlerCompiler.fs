@@ -16,8 +16,8 @@ open System.Collections.Generic
 
 /// Object for compiling operations.
 type HandlerCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, ignoreControllerPrefix, ignoreOperationId, asAsync: bool) =
-    let compileHandler (methodName:string) (op:OperationObject) =
-        if String.IsNullOrWhiteSpace methodName
+    let compileHandler (propertyName:string) (op:OperationObject) =
+        if String.IsNullOrWhiteSpace propertyName
             then failwithf "Operation name could not be empty. See '%s/%A'" op.Path op.Type
 
         let parameters =
@@ -36,7 +36,7 @@ type HandlerCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, igno
             Array.append required optional
             |> Array.fold (fun (names,parameters) current ->
                let (names, paramName) = uniqueParamName names current
-               let paramType = defCompiler.CompileTy methodName paramName current.Type current.Required
+               let paramType = defCompiler.CompileTy propertyName paramName current.Type current.Required
                let providedParam =
                    if current.Required then ProvidedParameter(paramName, paramType)
                    else
@@ -58,7 +58,7 @@ type HandlerCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, igno
             | Some (_,resp) ->
                 match resp.Schema with
                 | None -> None
-                | Some ty -> Some <| defCompiler.CompileTy methodName "Response" ty true
+                | Some ty -> Some <| defCompiler.CompileTy propertyName "Response" ty true
             | None -> None
 
         let overallReturnType =
@@ -79,10 +79,8 @@ type HandlerCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, igno
             )
             *)
             typeof<Func<HttpRequestMessage, Threading.Tasks.Task<HttpResponseMessage>>>
-        let handlerParameter =
-            [ProvidedParameter("handler", handlerTy)]
 
-        let m = ProvidedMethod(methodName, handlerParameter, typeof<unit>, invokeCode = fun args ->
+        let p = ProvidedProperty(propertyName, handlerTy, setterCode = fun args ->
             let thisTy = typeof<ProvidedSwaggerApiBaseType>
             let this = Expr.Coerce(args.[0], thisTy) |> Expr.Cast<ProvidedSwaggerApiBaseType>
             // TODO: augment handler to accept HttpRequestMessage.
@@ -95,12 +93,12 @@ type HandlerCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, igno
         )
 
         if not <| String.IsNullOrEmpty(op.Summary)
-            then m.AddXmlDoc(op.Summary) // TODO: Use description of parameters in docs
+            then p.AddXmlDoc(op.Summary) // TODO: Use description of parameters in docs
         if op.Deprecated
-            then m.AddObsoleteAttribute("Operation is deprecated", false)
-        m
+            then p.AddObsoleteAttribute("Operation is deprecated", false)
+        p
 
-    static member GetMethodNameCandidate (op:OperationObject) skipLength ignoreOperationId =
+    static member GetPropertyNameCandidate (op:OperationObject) skipLength ignoreOperationId =
         if ignoreOperationId || String.IsNullOrWhiteSpace(op.OperationId)
         then
             [|  yield op.Type.ToString()
@@ -146,10 +144,10 @@ type HandlerCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, igno
                         | _ -> <@@ () @@>),
                     BaseConstructorCall = fun args -> (baseCtor, args))
 
-            let methodNameScope = UniqueNameGenerator()
+            let propertyNameScope = UniqueNameGenerator()
             operations |> List.map (fun op ->
                 let skipLength = if String.IsNullOrEmpty handlerName then 0 else handlerName.Length + 1
-                let name = HandlerCompiler.GetMethodNameCandidate op skipLength ignoreOperationId
-                compileHandler (methodNameScope.MakeUnique name) op)
+                let name = HandlerCompiler.GetPropertyNameCandidate op skipLength ignoreOperationId
+                compileHandler (propertyNameScope.MakeUnique name) op)
             |> ty.AddMembers
         )
