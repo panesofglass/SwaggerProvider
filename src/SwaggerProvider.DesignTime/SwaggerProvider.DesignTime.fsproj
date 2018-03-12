@@ -65,9 +65,12 @@
     <Compile Include="Utils.fs" />
     <Compile Include="DefinitionCompiler.fs" />
     <Compile Include="OperationCompiler.fs" />
-    <Compile Include="SwaggerProviderConfig.fs" />
+    <Compile Include="HandlerCompiler.fs" />
     <Compile Include="Configuration.fs" />
+    <Compile Include="SwaggerProviderConfig.fs" />
     <Compile Include="SwaggerProvider.fs" />
+    <Compile Include="SwaggerApiProviderConfig.fs" />
+    <Compile Include="SwaggerApiProvider.fs" />
     <None Include="paket.references" />
   </ItemGroup>
   <ItemGroup>

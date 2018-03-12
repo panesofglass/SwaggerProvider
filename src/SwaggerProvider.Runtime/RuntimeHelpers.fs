@@ -1,15 +1,58 @@
-﻿namespace Swagger.Internal
+namespace Swagger.Internal
 
 open System
+open System.Collections.Generic
+open System.Net.Http
+open System.Threading.Tasks
 open Newtonsoft.Json
 open Swagger.Serialization
-open System.Threading.Tasks
-open System.Net.Http
 
 type ProvidedSwaggerBaseType (host:string) =
     member val Host = host with get, set
     member val Headers = Array.empty<string*string> with get, set
     member val CustomizeHttpRequest = (id: HttpRequestMessage -> HttpRequestMessage) with get, set
+
+type HttpMethod = string
+type TemplatePath = string
+type HttpHandler = Func<HttpRequestMessage, Task<HttpResponseMessage>>
+
+/// Provides an OWIN AppFunc that internally handles routing based on registered routes.
+type ProvidedSwaggerApiBaseType (host:string, basePath:string) =
+    let routes = Dictionary<TemplatePath, Dictionary<HttpMethod, HttpHandler>>(StringComparer.OrdinalIgnoreCase)
+
+    member val Host = host with get, set
+    member val BasePath = basePath with get, set
+
+    // TODO: make this an indexer property
+    member __.AddRoute(httpMethod, templatePath, handler) =
+        let d = match routes.TryGetValue(templatePath) with
+                | true, d -> d
+                | false, _ -> Dictionary<HttpMethod, HttpHandler>(StringComparer.OrdinalIgnoreCase)
+        d.[httpMethod] <- handler
+        routes.[templatePath] <- d
+
+    member __.Invoke(req:HttpRequestMessage) =
+        let httpMethod = req.Method.Method
+        let path = req.RequestUri.AbsolutePath.Substring(__.BasePath.Length)
+        // TODO: check parameterized path + query string + headers for a match; possibly use Freya router?
+        match routes.TryGetValue(path) with
+        | true, d ->
+            match d.TryGetValue(httpMethod) with
+            | true, handler -> handler.Invoke(req)
+            | false, _ -> ProvidedSwaggerApiBaseType.RespondMethodNotAllowed(req)
+        | false, _ -> ProvidedSwaggerApiBaseType.RespondNotFound(req)
+
+    static member internal RespondBadRequest(req:HttpRequestMessage) =
+        let response = new HttpResponseMessage(Net.HttpStatusCode.BadRequest, RequestMessage = req)
+        Task.FromResult(response)
+
+    static member internal RespondNotFound(req:HttpRequestMessage) =
+        let response = new HttpResponseMessage(Net.HttpStatusCode.NotFound, RequestMessage = req)
+        Task.FromResult(response)
+
+    static member internal RespondMethodNotAllowed(req:HttpRequestMessage) =
+        let response = new HttpResponseMessage(Net.HttpStatusCode.MethodNotAllowed, RequestMessage = req)
+        Task.FromResult(response)
 
 type AsyncExtensions () =
     static member cast<'t> asyncOp = async {

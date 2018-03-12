@@ -1,0 +1,153 @@
+namespace SwaggerProvider.Internal.Compilers
+
+open ProviderImplementation.ProvidedTypes
+open FSharp.Data.Runtime.NameUtils
+open Swagger.Parser.Schema
+open Swagger.Internal
+
+open System
+
+open Microsoft.FSharp.Quotations
+open Microsoft.FSharp.Quotations.ExprShape
+open System.Text.RegularExpressions
+open SwaggerProvider.Internal
+open System.Net.Http
+open System.Collections.Generic
+
+/// Object for compiling operations.
+type HandlerCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, ignoreControllerPrefix, ignoreOperationId, asAsync: bool) =
+    let compileHandler (propertyName:string) (op:OperationObject) =
+        if String.IsNullOrWhiteSpace propertyName
+            then failwithf "Operation name could not be empty. See '%s/%A'" op.Path op.Type
+
+        let parameters =
+            /// handles deduping Swagger parameter names if the same parameter name 
+            /// appears in multiple locations in a given operation definition.
+            let uniqueParamName existing (current: ParameterObject) = 
+                let name = niceCamelName current.Name
+                if Set.contains name existing 
+                then
+                    Set.add current.UnambiguousName existing, current.UnambiguousName
+                else
+                    Set.add name existing, name
+
+            let required, optional = op.Parameters |> Array.partition (fun x->x.Required)
+
+            Array.append required optional
+            |> Array.fold (fun (names,parameters) current ->
+               let (names, paramName) = uniqueParamName names current
+               let paramType = defCompiler.CompileTy propertyName paramName current.Type current.Required
+               let providedParam =
+                   if current.Required then ProvidedParameter(paramName, paramType)
+                   else
+                       let paramDefaultValue = defCompiler.GetDefaultValue paramType
+                       ProvidedParameter(paramName, paramType, false, paramDefaultValue)
+               (names, providedParam :: parameters)
+            ) (Set.empty, [])
+            |> snd
+            // because we built up our list in reverse order with the fold, 
+            // reverse it again so that all required properties come first
+            |> List.rev
+
+        // find the innner type value
+        let retTy =
+            let okResponse = // BUG : wrong selector
+                op.Responses |> Array.tryFind (fun (code, _) ->
+                    (code.IsSome && (code.Value = 200 || code.Value = 201)) || code.IsNone)
+            match okResponse with
+            | Some (_,resp) ->
+                match resp.Schema with
+                | None -> None
+                | Some ty -> Some <| defCompiler.CompileTy propertyName "Response" ty true
+            | None -> None
+
+        let overallReturnType =
+            ProvidedTypeBuilder.MakeGenericType(
+                (if asAsync 
+                 then typedefof<Async<unit>> 
+                 else typedefof<System.Threading.Tasks.Task<unit>>),
+                [defaultArg retTy (typeof<HttpResponseMessage>)]
+            )
+
+        // TODO: provide op-specific signature using specified parameters
+        let handlerTy =
+            (*
+            ProvidedTypeBuilder.MakeGenericType(
+                typedefof<System.Func<unit, unit>>,
+                // TODO: provide generated parameter(s)
+                [typeof<HttpRequestMessage>; overallReturnType]
+            )
+            *)
+            typeof<Func<HttpRequestMessage, Threading.Tasks.Task<HttpResponseMessage>>>
+
+        let p = ProvidedProperty(propertyName, handlerTy, setterCode = fun args ->
+            let thisTy = typeof<ProvidedSwaggerApiBaseType>
+            let this = Expr.Coerce(args.[0], thisTy) |> Expr.Cast<ProvidedSwaggerApiBaseType>
+            // TODO: augment handler to accept HttpRequestMessage.
+            // TODO: retrieve expected parameters from HttpRequestMessage and pass to parameterized handler.
+            // TODO: map result of handler function to the returned HttpResponseMessage.
+            let httpMethod = op.Type.ToString().ToUpper()
+            let path = op.Path
+            let handler = Expr.Coerce(args.[1], handlerTy)
+            <@ (%this).AddRoute(httpMethod, path, %%handler) @>.Raw
+        )
+
+        if not <| String.IsNullOrEmpty(op.Summary)
+            then p.AddXmlDoc(op.Summary) // TODO: Use description of parameters in docs
+        if op.Deprecated
+            then p.AddObsoleteAttribute("Operation is deprecated", false)
+        p
+
+    static member GetPropertyNameCandidate (op:OperationObject) skipLength ignoreOperationId =
+        if ignoreOperationId || String.IsNullOrWhiteSpace(op.OperationId)
+        then
+            [|  yield op.Type.ToString()
+                yield!
+                    op.Path.Split('/')
+                    |> Array.filter (fun x ->
+                        not <| (String.IsNullOrEmpty(x) || x.StartsWith("{")))
+            |] |> fun arr -> String.Join("_", arr)
+        else op.OperationId.Substring(skipLength)
+        |> nicePascalName
+
+    member __.CompileProvidedHandlers(ns:NamespaceAbstraction) =
+        let defaultHost =
+            let protocol =
+                match schema.Schemes with
+                | [||]  -> "http" // Should use the scheme used to access the Swagger definition itself.
+                | array -> array.[0]
+            sprintf "%s://%s" protocol schema.Host
+        let defaultBasePath = schema.BasePath
+        let baseTy = Some typeof<ProvidedSwaggerApiBaseType>
+        let baseCtor = baseTy.Value.GetConstructors().[0]
+
+        List.ofArray schema.Paths
+        |> List.groupBy (fun x ->
+            if ignoreControllerPrefix then String.Empty //
+            else
+                let ind = x.OperationId.IndexOf("_")
+                if ind <= 0 then String.Empty
+                else x.OperationId.Substring(0, ind) )
+        |> List.iter (fun (handlerName, operations) ->
+            let tyName = ns.ReserveUniqueName handlerName "Handler"
+            let ty = ProvidedTypeDefinition(tyName, baseTy, isErased = false, hideObjectMethods = true)
+            ns.RegisterType(tyName, ty)
+            ty.AddXmlDoc (sprintf "Handler for '%s_*' operations" handlerName)
+
+            ty.AddMember <|
+                ProvidedConstructor(
+                    [ProvidedParameter("host", typeof<string>, optionalValue = defaultHost)
+                     ProvidedParameter("basePath", typeof<string>, optionalValue = defaultBasePath)],
+                    invokeCode = (fun args ->
+                        match args with
+                        | [] -> failwith "Generated constructors should always pass the instance as the first argument!"
+                        | _ -> <@@ () @@>),
+                    BaseConstructorCall = fun args -> (baseCtor, args))
+
+            let propertyNameScope = UniqueNameGenerator()
+            operations |> List.map (fun op ->
+                let skipLength = if String.IsNullOrEmpty handlerName then 0 else handlerName.Length + 1
+                let name = HandlerCompiler.GetPropertyNameCandidate op skipLength ignoreOperationId
+                compileHandler (propertyNameScope.MakeUnique name) op)
+            |> ty.AddMembers
+        )

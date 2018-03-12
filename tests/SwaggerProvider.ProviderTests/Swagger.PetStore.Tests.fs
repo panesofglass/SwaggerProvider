@@ -1,4 +1,4 @@
-﻿module Swagger.PetStore.Tests
+module Swagger.PetStore.Tests
 
 open SwaggerProvider
 open Expecto
@@ -65,4 +65,45 @@ let petStoreTests =
         Expect.stringContains (pet.ToString()) "1337" "ToString"
         let pet2 = PetStoreNullable.Pet (Name="foo", Id = Nullable(1337L))
         Expect.stringContains (pet2.ToString()) "1337" "ToString"
+  ]
+
+open System.Net
+open System.Net.Http
+open System.Threading.Tasks
+
+type PetStoreServer = SwaggerApiProvider<"http://petstore.swagger.io/v2/swagger.json">
+let server =
+    PetStoreServer.Handler(
+        AddPet = fun req ->
+            let response = new HttpResponseMessage(Net.HttpStatusCode.Created, RequestMessage = req)
+            Task.FromResult(response)
+    )
+
+// Define AddPet handler
+
+let makeRequest (httpMethod:string) (path:string) (body:byte[] option) =
+    let request = new HttpRequestMessage(HttpMethod(httpMethod), server.Host + server.BasePath + path)
+    match body with
+    | Some bytes -> request.Content <- new ByteArrayContent(bytes)
+    | None -> ()
+    request
+
+[<Tests>]
+let petStoreServerTests =
+  testList "All/TP PetStore Server Tests" [
+
+    testCase "GET /pet/findByStatus handler responds with 404 Not Found" <| fun _ ->
+        let req = makeRequest "GET" "/pet/findByStatus" None
+        let result = server.Invoke(req).Result
+        Expect.equal result.StatusCode HttpStatusCode.NotFound "not found"
+
+    testCase "GET /pet handler responds with 405 Method Not Allowed" <| fun _ ->
+        let req = makeRequest "GET" "/pet" None
+        let result = server.Invoke(req).Result
+        Expect.equal result.StatusCode HttpStatusCode.MethodNotAllowed "method not allowed"
+
+    testCase "POST /pet handler responds with expected result" <| fun _ ->
+        let req = makeRequest "POST" "/pet" None
+        let result = server.Invoke(req).Result
+        Expect.equal result.StatusCode HttpStatusCode.Created "created"
   ]
