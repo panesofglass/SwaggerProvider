@@ -85,7 +85,7 @@ type HandlerCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, igno
         let m = ProvidedMethod(methodName, handlerParameter, typeof<unit>, invokeCode = fun args ->
             let thisTy = typeof<ProvidedSwaggerApiBaseType>
             let this = Expr.Coerce(args.[0], thisTy) |> Expr.Cast<ProvidedSwaggerApiBaseType>
-            let httpMethod = Expr.Value (HttpMethod(op.Type.ToString().ToUpper()))
+            let httpMethod = Expr.Value (op.Type.ToString().ToUpper())
             let path = Expr.Value op.Path
             // TODO: augment handler to accept HttpRequestMessage.
             // TODO: retrieve expected parameters from HttpRequestMessage and pass to parameterized handler.

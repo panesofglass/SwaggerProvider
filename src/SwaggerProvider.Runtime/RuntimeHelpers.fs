@@ -18,18 +18,18 @@ type HttpHandler = Func<HttpRequestMessage, Task<HttpResponseMessage>>
 
 /// Provides an OWIN AppFunc that internally handles routing based on registered routes.
 type ProvidedSwaggerApiBaseType () =
-    let routes = Dictionary<TemplatePath, Dictionary<HttpMethod, HttpHandler>>()
+    let routes = Dictionary<TemplatePath, Dictionary<string, HttpHandler>>(StringComparer.OrdinalIgnoreCase)
 
     // TODO: make this private or internal
     member __.AddRoute(httpMethod, templatePath, handler) =
         let d = match routes.TryGetValue(templatePath) with
                 | true, d -> d
-                | false, _ -> Dictionary<HttpMethod, HttpHandler>()
+                | false, _ -> Dictionary<string, HttpHandler>(StringComparer.OrdinalIgnoreCase)
         d.[httpMethod] <- handler
         routes.[templatePath] <- d
 
     member __.Invoke(req:HttpRequestMessage) =
-        let httpMethod = req.Method
+        let httpMethod = req.Method.Method
         let path = req.RequestUri.AbsolutePath
         // TODO: check parameterized path + query string + headers for a match; possibly use Freya router?
         match routes.TryGetValue(path) with
