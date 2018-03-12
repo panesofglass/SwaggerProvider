@@ -119,6 +119,7 @@ type HandlerCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, igno
                 | [||]  -> "http" // Should use the scheme used to access the Swagger definition itself.
                 | array -> array.[0]
             sprintf "%s://%s" protocol schema.Host
+        let defaultBasePath = schema.BasePath
         let baseTy = Some typeof<ProvidedSwaggerApiBaseType>
         let baseCtor = baseTy.Value.GetConstructors().[0]
 
@@ -137,7 +138,8 @@ type HandlerCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, igno
 
             ty.AddMember <|
                 ProvidedConstructor(
-                    [ProvidedParameter("host", typeof<string>, optionalValue = defaultHost)],
+                    [ProvidedParameter("host", typeof<string>, optionalValue = defaultHost)
+                     ProvidedParameter("basePath", typeof<string>, optionalValue = defaultBasePath)],
                     invokeCode = (fun args ->
                         match args with
                         | [] -> failwith "Generated constructors should always pass the instance as the first argument!"

@@ -81,7 +81,7 @@ server.AddPet(fun req ->
 )
 
 let makeRequest (httpMethod:string) (path:string) (body:byte[] option) =
-    let request = new HttpRequestMessage(HttpMethod(httpMethod), "http://petstore.swagger.io/v2" + path)
+    let request = new HttpRequestMessage(HttpMethod(httpMethod), server.Host + server.BasePath + path)
     match body with
     | Some bytes -> request.Content <- new ByteArrayContent(bytes)
     | None -> ()
