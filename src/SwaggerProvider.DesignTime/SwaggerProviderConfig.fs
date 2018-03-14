@@ -1,4 +1,4 @@
-﻿namespace SwaggerProvider
+namespace SwaggerProvider
 
 open System.Reflection
 open ProviderImplementation.ProvidedTypes
@@ -86,6 +86,7 @@ module private SwaggerProviderConfig =
                 let defCompiler = DefinitionCompiler(schema, provideNullable)
                 let opCompiler = OperationCompiler(schema, defCompiler, ignoreControllerPrefix, ignoreOperationId, asAsync)
 
+                opCompiler.CompileProvidedInterfaces(defCompiler.Namespace)
                 opCompiler.CompileProvidedClients(defCompiler.Namespace)
                 ty.AddMembers <| defCompiler.Namespace.GetProvidedTypes() // Add all provided types
 

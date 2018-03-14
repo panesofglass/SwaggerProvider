@@ -78,4 +78,3 @@ let JsonSchemas =
 let YamlSchemas = 
     filter apisGuruYamlSchemaUrls
     |> Array.distinct
-
