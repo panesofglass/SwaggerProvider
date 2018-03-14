@@ -13,42 +13,41 @@ open System.Text.RegularExpressions
 open SwaggerProvider.Internal
 open System.Net.Http
 open System.Collections.Generic
+open System.Reflection
 
 /// Object for compiling operations.
 type OperationCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, ignoreControllerPrefix, ignoreOperationId, asAsync: bool) =
-    let compileOperation (methodName:string) (op:OperationObject) =
-        if String.IsNullOrWhiteSpace methodName
-            then failwithf "Operation name could not be empty. See '%s/%A'" op.Path op.Type
 
-        let parameters =
-            /// handles deduping Swagger parameter names if the same parameter name 
-            /// appears in multiple locations in a given operation definition.
-            let uniqueParamName existing (current: ParameterObject) = 
-                let name = niceCamelName current.Name
-                if Set.contains name existing 
-                then
-                    Set.add current.UnambiguousName existing, current.UnambiguousName
-                else
-                    Set.add name existing, name                
-                
-            let required, optional = op.Parameters |> Array.partition (fun x->x.Required)
+    let makeOperationParameters (methodName:string) (op:OperationObject) =
+        /// handles deduping Swagger parameter names if the same parameter name 
+        /// appears in multiple locations in a given operation definition.
+        let uniqueParamName existing (current: ParameterObject) = 
+            let name = niceCamelName current.Name
+            if Set.contains name existing 
+            then
+                Set.add current.UnambiguousName existing, current.UnambiguousName
+            else
+                Set.add name existing, name                
             
-            Array.append required optional
-            |> Array.fold (fun (names,parameters) current -> 
-               let (names, paramName) = uniqueParamName names current
-               let paramType = defCompiler.CompileTy methodName paramName current.Type current.Required
-               let providedParam = 
-                   if current.Required then ProvidedParameter(paramName, paramType)
-                   else 
-                       let paramDefaultValue = defCompiler.GetDefaultValue paramType
-                       ProvidedParameter(paramName, paramType, false, paramDefaultValue)
-               (names, providedParam :: parameters)
-            ) (Set.empty, [])
-            |> snd
-            // because we built up our list in reverse order with the fold, 
-            // reverse it again so that all required properties come first
-            |> List.rev
+        let required, optional = op.Parameters |> Array.partition (fun x->x.Required)
         
+        Array.append required optional
+        |> Array.fold (fun (names,parameters) current -> 
+           let (names, paramName) = uniqueParamName names current
+           let paramType = defCompiler.CompileTy methodName paramName current.Type current.Required
+           let providedParam = 
+               if current.Required then ProvidedParameter(paramName, paramType)
+               else 
+                   let paramDefaultValue = defCompiler.GetDefaultValue paramType
+                   ProvidedParameter(paramName, paramType, false, paramDefaultValue)
+           (names, providedParam :: parameters)
+        ) (Set.empty, [])
+        |> snd
+        // because we built up our list in reverse order with the fold, 
+        // reverse it again so that all required properties come first
+        |> List.rev
+
+    let makeOperationReturnType (methodName:string) (op:OperationObject) =
         // find the innner type value
         let retTy =
             let okResponse = // BUG :  wrong selector
@@ -68,6 +67,31 @@ type OperationCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, ig
                      else typedefof<System.Threading.Tasks.Task<unit>>),
                     [defaultArg retTy (typeof<unit>)]
                  )
+
+        retTy, overallReturnType
+
+    let compileInterfaceOperation (methodName:string) (op:OperationObject) =
+        if String.IsNullOrWhiteSpace methodName
+            then failwithf "Operation name could not be empty. See '%s/%A'" op.Path op.Type
+
+        let parameters = makeOperationParameters methodName op
+        let _, overallReturnType = makeOperationReturnType methodName op
+
+        // TODO: how to generate a method signature for an interface?
+        let m = ProvidedMethod(methodName, parameters, overallReturnType, invokeCode = fun args -> <@@ () @@>)
+        m.SetMethodAttrs (MethodAttributes.Public ||| MethodAttributes.Abstract)
+        if not <| String.IsNullOrEmpty(op.Summary)
+            then m.AddXmlDoc(op.Summary) // TODO: Use description of parameters in docs
+        if op.Deprecated
+            then m.AddObsoleteAttribute("Operation is deprecated", false)
+        m
+
+    let compileClientOperation (methodName:string) (op:OperationObject) =
+        if String.IsNullOrWhiteSpace methodName
+            then failwithf "Operation name could not be empty. See '%s/%A'" op.Path op.Type
+
+        let parameters = makeOperationParameters methodName op
+        let retTy, overallReturnType = makeOperationReturnType methodName op
 
         let m = ProvidedMethod(methodName, parameters, overallReturnType, invokeCode = fun args ->
             let thisTy = typeof<ProvidedSwaggerBaseType>
@@ -255,6 +279,31 @@ type OperationCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, ig
         else op.OperationId.Substring(skipLength)
         |> nicePascalName
 
+    member __.CompileProvidedInterfaces(ns:NamespaceAbstraction) =
+        let baseTy = Some typeof<obj>
+
+        List.ofArray schema.Paths
+        |> List.groupBy (fun x ->
+            if ignoreControllerPrefix then String.Empty //
+            else
+                let ind = x.OperationId.IndexOf("_")
+                if ind <= 0 then String.Empty
+                else x.OperationId.Substring(0, ind) )
+        |> List.iter (fun (clientName, operations) ->
+            let tyName = ns.ReserveUniqueName clientName "Contract"
+            let ty = ProvidedTypeDefinition(tyName, baseTy, isErased = false, hideObjectMethods = true)
+            ty.SetAttributes (TypeAttributes.Public ||| TypeAttributes.Interface ||| TypeAttributes.Abstract)
+            ns.RegisterType(tyName, ty)
+            ty.AddXmlDoc (sprintf "Interface for '%s_*' operations" clientName)
+
+            let methodNameScope = UniqueNameGenerator()
+            operations |> List.map (fun op ->
+                let skipLength = if String.IsNullOrEmpty clientName then 0 else clientName.Length + 1
+                let name = OperationCompiler.GetMethodNameCandidate op skipLength ignoreOperationId
+                compileInterfaceOperation (methodNameScope.MakeUnique name) op)
+            |> ty.AddMembers
+        )
+
     member __.CompileProvidedClients(ns:NamespaceAbstraction) =
         let defaultHost =
             let protocol =
@@ -291,6 +340,6 @@ type OperationCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, ig
             operations |> List.map (fun op ->
                 let skipLength = if String.IsNullOrEmpty clientName then 0 else clientName.Length + 1
                 let name = OperationCompiler.GetMethodNameCandidate op skipLength ignoreOperationId
-                compileOperation (methodNameScope.MakeUnique name) op)
+                compileClientOperation (methodNameScope.MakeUnique name) op)
             |> ty.AddMembers
         )
