@@ -290,21 +290,18 @@ type OperationCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, ig
                 if ind <= 0 then String.Empty
                 else x.OperationId.Substring(0, ind) )
         |> List.iter (fun (clientName, operations) ->
-            let tyName = ns.ReserveUniqueName ("I" + clientName) "Contract"
+            let tyName = ns.ReserveUniqueName clientName "Contract"
             let ty = ProvidedTypeDefinition(tyName, baseTy, isErased = false, hideObjectMethods = true)
-            ty.SetAttributes (TypeAttributes.Public ||| TypeAttributes.Interface ||| TypeAttributes.Abstract)
+            ty.SetAttributes (TypeAttributes.Public ||| TypeAttributes.Abstract)
             ns.RegisterType(tyName, ty)
-            ty.AddXmlDoc (sprintf "Interface for '%s_*' operations" clientName)
+            ty.AddXmlDoc (sprintf "Contract for '%s_*' operations" clientName)
 
-// Uncomment to attempt to add members
-(*
             let methodNameScope = UniqueNameGenerator()
             operations |> List.map (fun op ->
                 let skipLength = if String.IsNullOrEmpty clientName then 0 else clientName.Length + 1
                 let name = OperationCompiler.GetMethodNameCandidate op skipLength ignoreOperationId
                 compileInterfaceOperation (methodNameScope.MakeUnique name) op)
             |> ty.AddMembers
-*)
         )
 
     member __.CompileProvidedClients(ns:NamespaceAbstraction) =
