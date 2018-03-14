@@ -78,8 +78,10 @@ type OperationCompiler (schema:SwaggerObject, defCompiler:DefinitionCompiler, ig
         let _, overallReturnType = makeOperationReturnType methodName op
 
         // TODO: how to generate a method signature for an interface?
-        let m = ProvidedMethod(methodName, parameters, overallReturnType, invokeCode = fun args -> <@@ () @@>)
-        m.SetMethodAttrs (MethodAttributes.Public ||| MethodAttributes.Abstract)
+        let m = ProvidedMethod(methodName, parameters, overallReturnType, invokeCode = fun args ->
+            <@ raise (NotImplementedException(methodName + " is not implemented")) @>.Raw
+            )
+        m.SetMethodAttrs (MethodAttributes.Public ||| MethodAttributes.Virtual)
         if not <| String.IsNullOrEmpty(op.Summary)
             then m.AddXmlDoc(op.Summary) // TODO: Use description of parameters in docs
         if op.Deprecated
