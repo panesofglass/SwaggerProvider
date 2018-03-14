@@ -1,5 +1,6 @@
-﻿module APIsGuruFSCS
+module APIsGuruFSCS
 
+(*
 open Microsoft.FSharp.Compiler.SourceCodeServices
 open System
 open System.IO
@@ -107,3 +108,4 @@ let fsiTests =
        )
     |> testList "Integration/Load TP in FSI"
     |> testSequenced
+*)

@@ -4,8 +4,12 @@ open SwaggerProvider
 open Expecto
 open System
 
-type PetStore = SwaggerProvider<"http://petstore.swagger.io/v2/swagger.json", PreferAsync = true>
-type PetStoreNullable = SwaggerProvider<"http://petstore.swagger.io/v2/swagger.json", ProvideNullable = true>
+[<Literal>]
+let url = "http://petstore.swagger.io/v2/swagger.json"
+[<Literal>]
+let path = __SOURCE_DIRECTORY__ + "/../SwaggerProvider.Tests/Schemas/PetStore.Swagger.json"
+type PetStore = SwaggerProvider<path, PreferAsync = true>
+type PetStoreNullable = SwaggerProvider<path, ProvideNullable = true>
 let store = PetStore.Client()
 let apiKey = "test-key"
 
@@ -67,11 +71,12 @@ let petStoreTests =
         Expect.stringContains (pet2.ToString()) "1337" "ToString"
   ]
 
+(*
 open System.Net
 open System.Net.Http
 open System.Threading.Tasks
 
-type PetStoreServer = SwaggerApiProvider<"http://petstore.swagger.io/v2/swagger.json">
+type PetStoreServer = SwaggerApiProvider<path>
 let server =
     PetStoreServer.Handler(
         AddPet = fun req ->
@@ -107,3 +112,4 @@ let petStoreServerTests =
         let result = server.Invoke(req).Result
         Expect.equal result.StatusCode HttpStatusCode.Created "created"
   ]
+*)

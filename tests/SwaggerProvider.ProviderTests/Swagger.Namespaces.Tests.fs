@@ -2,6 +2,7 @@ module Swagger.Namespaces.Tests
 
 open SwaggerProvider
 
+(*
 type GI = SwaggerProvider<"https://api.apis.guru/v2/specs/gettyimages.com/3/swagger.json", IgnoreControllerPrefix = false>
 
 let c1 = GI.ArtistsClient()
@@ -15,3 +16,4 @@ let cm = CM.Client()
 
 let a = CM.Api.Core.Dto.ClickStream()
 let b = CM.ClickMeter.Infrastructure.Validation.ValidationFailure()
+*)
